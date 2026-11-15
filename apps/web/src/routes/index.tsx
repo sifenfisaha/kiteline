@@ -16,6 +16,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { Wordmark } from "@/components/brand";
 import { StatusDot, StatusPill } from "@/components/status";
+import { UpdateNotice } from "@/components/update-notice";
 import { baseName, dayBucket, greeting, relativeTime, tildify } from "@/lib/format";
 import { useLiveRuns } from "@/lib/live";
 import { orpc } from "@/lib/orpc";
@@ -114,6 +115,8 @@ function Home() {
 						)}
 					</p>
 				</section>
+
+				<UpdateNotice computer={system.data?.version} host={host} />
 
 				{live.length ? (
 					<section className="mb-7">

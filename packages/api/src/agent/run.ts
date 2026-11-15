@@ -22,6 +22,7 @@ import type {
 	PermissionDecision,
 	PermissionModeId,
 	PermissionRequest,
+	RunCursor,
 	RunEvent,
 	RunMeta,
 	RunSnapshot,
@@ -45,6 +46,9 @@ export type RunOptions = {
 	claudePath: string | null;
 	allowBypass: boolean;
 };
+
+/** How many recent events a run keeps, for watchers picking up where a dropped connection left them. */
+const MAX_RECENT = 3000;
 
 type Pending = {
 	request: PermissionRequest;
@@ -87,10 +91,15 @@ export class Run {
 	/** Holds messages back until the session's effort is set, when the start options can't carry it. */
 	private hold: Promise<void> | null = null;
 	private modelList: Promise<ModelInfo[]> | null = null;
+	/** The number of the last event sent. */
+	private seq = 0;
+	/** The latest events, in order: every one numbered above `floor`. */
+	private recent: Exclude<RunEvent, { type: "snapshot" }>[] = [];
+	private floor = 0;
 
 	constructor(
 		options: RunOptions,
-		private readonly emit: (event: RunEvent) => void,
+		private readonly deliver: (event: RunEvent) => void,
 		private readonly onEnd: () => void,
 	) {
 		this.sessionId = options.sessionId;
@@ -167,6 +176,33 @@ export class Run {
 		});
 	}
 
+	/**
+	 * Numbers each event and keeps the latest, so a watcher that dropped can be sent only what it
+	 * missed. A snapshot replaces everything before it, so nothing earlier can be picked up from.
+	 */
+	private emit(event: RunEvent) {
+		if (event.type === "snapshot") {
+			this.recent = [];
+			this.floor = this.seq;
+			this.deliver(event);
+			return;
+		}
+		const numbered = { ...event, seq: ++this.seq };
+		this.recent.push(numbered);
+		if (this.recent.length > MAX_RECENT) {
+			const dropped = this.recent.splice(0, this.recent.length - MAX_RECENT);
+			this.floor = dropped.at(-1)?.seq ?? this.floor;
+		}
+		this.deliver(numbered);
+	}
+
+	/** The events after `cursor`, or null when it's from another run or too far back: send a snapshot. */
+	since(cursor: RunCursor): RunEvent[] | null {
+		if (cursor.startedAt !== this.startedAt) return null;
+		if (cursor.seq < this.floor || cursor.seq > this.seq) return null;
+		return this.recent.filter((event) => (event.seq ?? 0) > cursor.seq);
+	}
+
 	snapshot(): RunSnapshot {
 		return {
 			sessionId: this.sessionId,
@@ -181,6 +217,7 @@ export class Run {
 			permissions: [...this.pending.values()].map((p) => p.request),
 			toolProgress: Object.fromEntries(this.toolProgress),
 			startedAt: this.startedAt,
+			seq: this.seq,
 		};
 	}
 
@@ -341,6 +378,12 @@ export class Run {
 		this.q.close();
 	}
 
+	/** Put to sleep to make room: closed, and counted as closed at once rather than when the process has gone. */
+	retire() {
+		this.close();
+		this.finish("closed", null);
+	}
+
 	private canUseTool: CanUseTool = (toolName, input, options) =>
 		new Promise<PermissionResult>((resolve) => {
 			const id = options.toolUseID || randomUUID();
@@ -388,6 +431,7 @@ export class Run {
 	}
 
 	private finish(status: RunStatus, error: string | null) {
+		if (!this.isLive) return;
 		this.flushDraft();
 		for (const pending of this.pending.values())
 			pending.settle({ behavior: "deny", message: "Session ended" });

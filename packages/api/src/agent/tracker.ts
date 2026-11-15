@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 type Entry = { id: string; cwd: string; at: number };
@@ -23,7 +23,10 @@ export class SessionTracker {
 		this.entries = [{ id, cwd, at: Date.now() }, ...this.entries.filter((e) => e.id !== id)].slice(0, 300);
 		try {
 			mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 });
-			writeFileSync(this.file, `${JSON.stringify({ sessions: this.entries }, null, 2)}\n`, { mode: 0o600 });
+			// Written beside it and moved into place, so a crash mid-write can't leave half a file.
+			const temp = `${this.file}.${process.pid}.tmp`;
+			writeFileSync(temp, `${JSON.stringify({ sessions: this.entries }, null, 2)}\n`, { mode: 0o600 });
+			renameSync(temp, this.file);
 		} catch {
 			// Not fatal: the session still works, it just may not be listed after a restart.
 		}

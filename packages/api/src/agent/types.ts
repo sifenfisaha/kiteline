@@ -119,20 +119,28 @@ export type RunSnapshot = {
 	permissions: PermissionRequest[];
 	toolProgress: Record<string, number>;
 	startedAt: number;
+	/** The number of the last event this snapshot includes; see RunCursor. */
+	seq: number;
 };
 
+/** Where a watcher got to in a run's events, so it can pick up from there after a dropped connection. */
+export type RunCursor = { startedAt: number; seq: number };
+
+/** Every event but a snapshot is numbered in order, within its run. */
 export type RunEvent =
 	| { type: "snapshot"; run: RunSnapshot | null }
-	| { type: "item"; item: Item }
-	| { type: "tool-result"; toolUseId: string; result: ToolResult }
-	| { type: "tool-progress"; toolUseId: string; seconds: number }
-	| { type: "draft-delta"; text: string }
-	| { type: "draft-reset" }
-	| { type: "status"; status: RunStatus; error: string | null }
-	| { type: "meta"; meta: RunMeta }
-	| { type: "usage"; usage: RunUsage }
-	| { type: "permission"; request: PermissionRequest }
-	| { type: "permission-resolved"; id: string };
+	| ({ seq?: number } & (
+			| { type: "item"; item: Item }
+			| { type: "tool-result"; toolUseId: string; result: ToolResult }
+			| { type: "tool-progress"; toolUseId: string; seconds: number }
+			| { type: "draft-delta"; text: string }
+			| { type: "draft-reset" }
+			| { type: "status"; status: RunStatus; error: string | null }
+			| { type: "meta"; meta: RunMeta }
+			| { type: "usage"; usage: RunUsage }
+			| { type: "permission"; request: PermissionRequest }
+			| { type: "permission-resolved"; id: string }
+	  ));
 
 export type RunSummary = {
 	sessionId: string;

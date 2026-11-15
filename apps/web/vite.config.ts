@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { varlockVitePlugin } from "@varlock/vite-integration";
@@ -6,8 +8,13 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 const api = "http://localhost:4545";
+// The release this app is built for: the server's, which the npm package takes its version from.
+const { version } = JSON.parse(readFileSync(new URL("../server/package.json", import.meta.url), "utf8")) as {
+	version: string;
+};
 
 export default defineConfig({
+	define: { __KITELINE_VERSION__: JSON.stringify(version) },
 	server: {
 		port: 4546,
 		// Reachable from a phone on the same network or tailnet during development.

@@ -57,6 +57,8 @@ type Pending = {
 const NO_BODY = new Set([101, 103, 204, 205, 304]);
 const PING_MS = 20_000;
 const SILENCE_MS = 50_000;
+/** How long a tunnel that's asked whether it's still there has to answer. */
+const PROBE_MS = 4_000;
 
 /**
  * The phone's end of a sealed tunnel to its computer, through the relay. `fetch` works like the
@@ -67,6 +69,9 @@ export class Tunnel {
 	private readonly streams = new Map<number, Pending>();
 	private sending: Promise<void> = Promise.resolve();
 	private lastHeard = Date.now();
+	/** Counts frames from the computer, so a probe can tell whether one came after it asked. */
+	private heard = 0;
+	private probing = false;
 	private readonly timer: ReturnType<typeof setInterval>;
 	private failure: TunnelError | null = null;
 	private readonly listeners = new Set<(error: TunnelError) => void>();
@@ -122,6 +127,22 @@ export class Tunnel {
 		this.fail(new TunnelError("lost", "Closed."));
 	}
 
+	/**
+	 * Asks the computer whether it's still there, and gives the tunnel up if nothing comes back soon.
+	 * For when a phone wakes or changes network: a connection that died meanwhile can look open for
+	 * most of a minute, and everything sent down it would wait that long.
+	 */
+	probe(timeoutMs = PROBE_MS) {
+		if (this.failure || this.probing) return;
+		this.probing = true;
+		const before = this.heard;
+		this.post(Msg.Ping, 0);
+		setTimeout(() => {
+			this.probing = false;
+			if (this.heard === before) this.fail(tunnelError(new SocketTimeout()));
+		}, timeoutMs);
+	}
+
 	private fail(error: TunnelError) {
 		if (this.failure) return;
 		this.failure = error;
@@ -152,6 +173,7 @@ export class Tunnel {
 				const frame: Bytes = await this.socket.next();
 				const { type, stream, payload } = unpack(await this.cipher.open(frame));
 				this.lastHeard = Date.now();
+				this.heard++;
 				this.dispatch(type, stream, payload);
 			}
 		} catch (error) {

@@ -31,9 +31,16 @@ export const runsRouter = {
 		yield* context.manager.watchList(signal);
 	}),
 
-	watch: protectedProcedure.input(session).handler(async function* ({ input, context, signal }) {
-		yield* context.manager.watchSession(input.sessionId, signal);
-	}),
+	/** `since` is where this watcher got to before its connection dropped, to be sent only the rest. */
+	watch: protectedProcedure
+		.input(
+			session.extend({
+				since: z.object({ startedAt: z.number(), seq: z.number().int().min(0) }).optional(),
+			}),
+		)
+		.handler(async function* ({ input, context, signal }) {
+			yield* context.manager.watchSession(input.sessionId, signal, input.since);
+		}),
 
 	send: protectedProcedure
 		.input(
