@@ -162,6 +162,15 @@ function dropTunnel() {
 	tunnel = null;
 }
 
+// Back from the background or onto another network: find out now whether the tunnel survived, so
+// what's sent next doesn't wait on a dead one.
+if (onRelay) {
+	document.addEventListener("visibilitychange", () => {
+		if (document.visibilityState === "visible") live?.probe();
+	});
+	window.addEventListener("online", () => live?.probe());
+}
+
 /** One tunnel at a time, opened when first needed and again after it drops. */
 function getTunnel() {
 	tunnel ??= (async () => {

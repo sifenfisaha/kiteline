@@ -137,6 +137,19 @@ export async function startRelay(options: Options) {
 				ws.close();
 			} catch {}
 			if (stopped) return;
+			// Another Kiteline holds this computer's place at the relay, and taking it back would only
+			// have the two trade it for ever. The newer one keeps it; this one stays on local networks.
+			if (code === RelayClose.Replaced) {
+				stopped = true;
+				connected = false;
+				options.log(
+					"Another Kiteline on this computer took over the relay connection, so this one is off the relay now.",
+				);
+				options.log(
+					"Phones still reach this one on your own network. Stop the other, then restart this, to bring it back.",
+				);
+				return;
+			}
 			if (connected) options.log("Lost the relay; reconnecting.");
 			else if (attempt === 0) {
 				const why = code === RelayClose.TooMany ? "it's full right now" : "couldn't reach it";

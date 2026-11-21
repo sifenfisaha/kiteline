@@ -100,8 +100,13 @@ export class PairLimiter {
 
 	fail(key: string) {
 		const entry = this.failures.get(key);
-		const fresh = !entry || entry.until < Date.now();
-		this.failures.set(key, { count: fresh ? 1 : entry.count + 1, until: Date.now() + 10 * 60_000 });
+		const now = Date.now();
+		const fresh = !entry || entry.until < now;
+		// Addresses whose ten minutes are up are forgotten, so the list can't grow without end.
+		if (this.failures.size > 200) {
+			for (const [other, old] of this.failures) if (old.until < now) this.failures.delete(other);
+		}
+		this.failures.set(key, { count: fresh ? 1 : entry.count + 1, until: now + 10 * 60_000 });
 	}
 
 	clear(key: string) {

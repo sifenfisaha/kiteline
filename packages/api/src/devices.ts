@@ -1,6 +1,6 @@
 import { randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 import { AsyncQueue } from "./agent/queue";
@@ -147,28 +147,45 @@ export class Devices extends EventEmitter<Events> {
 	private readonly live = new Map<string, number>();
 	private readonly watchers = new Set<AsyncQueue<true>>();
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
+	/** Where a devices file that couldn't be read was put aside, if one was: every device pairs again. */
+	readonly damaged: string | null;
 
 	constructor(private readonly file: string) {
 		super();
-		this.devices = Devices.load(file);
+		const loaded = Devices.load(file);
+		this.devices = loaded.devices;
+		this.damaged = loaded.damaged;
 		setInterval(() => this.sweep(), 15_000).unref();
 	}
 
-	private static load(file: string): Stored[] {
+	private static load(file: string): { devices: Stored[]; damaged: string | null } {
 		try {
-			const data = JSON.parse(readFileSync(file, "utf8")) as { devices?: unknown };
-			return Array.isArray(data.devices)
-				? data.devices.filter(isStored).map((d) => ({
-						...d,
-						name: cleanName(d.name),
-						lastSeen: typeof d.lastSeen === "string" ? d.lastSeen : null,
-						approvedBy: typeof d.approvedBy === "string" ? d.approvedBy : "terminal",
-						via: d.via === "relay" ? "relay" : "direct",
-					}))
-				: [];
+			return { devices: Devices.parse(readFileSync(file, "utf8")), damaged: null };
 		} catch {
-			return [];
+			if (!existsSync(file)) return { devices: [], damaged: null };
+			// There but unreadable: keep it, rather than have the next save write an empty list over it.
+			const aside = `${file}.damaged-${Date.now()}`;
+			try {
+				renameSync(file, aside);
+				return { devices: [], damaged: aside };
+			} catch {
+				return { devices: [], damaged: file };
+			}
 		}
+	}
+
+	private static parse(text: string): Stored[] {
+		const data = JSON.parse(text) as { devices?: unknown } | null;
+		if (!data || typeof data !== "object") throw new Error("not a devices file");
+		return Array.isArray(data.devices)
+			? data.devices.filter(isStored).map((d) => ({
+					...d,
+					name: cleanName(d.name),
+					lastSeen: typeof d.lastSeen === "string" ? d.lastSeen : null,
+					approvedBy: typeof d.approvedBy === "string" ? d.approvedBy : "terminal",
+					via: d.via === "relay" ? "relay" : "direct",
+				}))
+			: [];
 	}
 
 	get count() {

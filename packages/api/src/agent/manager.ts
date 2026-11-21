@@ -12,6 +12,7 @@ import type {
 	EffortInfo,
 	PermissionDecision,
 	PermissionModeId,
+	RunCursor,
 	RunEvent,
 	RunSnapshot,
 	RunSummary,
@@ -36,6 +37,9 @@ export type SendInput = {
 	/** An effort level picked while the session wasn't running. */
 	effort?: EffortChoice;
 };
+
+/** How long a run that died with an error is remembered. */
+const FAILED_MS = 5 * 60_000;
 
 export class RunManager {
 	private readonly runs = new Map<string, Run>();
@@ -158,10 +162,25 @@ export class RunManager {
 		return { sessionId: id };
 	}
 
+	/**
+	 * Makes room for one more session. A session that's only resting holds a place it isn't using, so
+	 * at the limit the one idle longest goes to sleep early; the limit only refuses when every session
+	 * is working or waiting for an answer.
+	 */
 	private checkLimit() {
-		const liveCount = [...this.runs.values()].filter((run) => run.isLive).length;
-		if (liveCount >= this.config.maxLiveRuns) {
-			throw new Error(`${liveCount} sessions are already running. Stop one before starting another.`);
+		const live = [...this.runs.values()].filter((run) => run.isLive);
+		if (live.length < this.config.maxLiveRuns) return;
+		const resting = live
+			.filter((run) => run.status === "idle" && run.pendingCount === 0)
+			.sort((a, b) => a.lastActivity - b.lastActivity);
+		let count = live.length;
+		for (const run of resting) {
+			if (count < this.config.maxLiveRuns) break;
+			run.retire();
+			count--;
+		}
+		if (count >= this.config.maxLiveRuns) {
+			throw new Error(`${count} sessions are busy right now. Stop one before starting another.`);
 		}
 	}
 
@@ -201,8 +220,12 @@ export class RunManager {
 		for (const run of this.runs.values()) run.close();
 	}
 
-	/** Snapshot first, then every event for this session, across process restarts. */
-	async *watchSession(sessionId: string, signal?: AbortSignal): AsyncGenerator<RunEvent> {
+	/**
+	 * Snapshot first, then every event for this session, across process restarts. A watcher coming
+	 * back after a dropped connection says where it got to, and is sent only what it missed when the
+	 * run still has it.
+	 */
+	async *watchSession(sessionId: string, signal?: AbortSignal, since?: RunCursor): AsyncGenerator<RunEvent> {
 		const queue = new AsyncQueue<RunEvent>();
 		let watchers = this.sessionWatchers.get(sessionId);
 		if (!watchers) {
@@ -215,9 +238,14 @@ export class RunManager {
 		if (signal?.aborted) queue.close();
 		try {
 			const run = this.runs.get(sessionId);
-			const failed = this.failed.get(sessionId);
-			const recent = failed && Date.now() - failed.at < 5 * 60_000 ? failed.snapshot : null;
-			yield { type: "snapshot", run: run ? run.snapshot() : recent };
+			// Worked out before anything else can happen, so the queue carries on exactly from here.
+			const missed = run && since ? run.since(since) : null;
+			if (missed) yield* missed;
+			else {
+				const failed = this.failed.get(sessionId);
+				const recent = failed && Date.now() - failed.at < FAILED_MS ? failed.snapshot : null;
+				yield { type: "snapshot", run: run ? run.snapshot() : recent };
+			}
 			for await (const event of queue) yield event;
 		} finally {
 			signal?.removeEventListener("abort", stop);
@@ -269,6 +297,7 @@ export class RunManager {
 
 	private reap() {
 		const now = Date.now();
+		for (const [id, failed] of this.failed) if (now - failed.at > FAILED_MS) this.failed.delete(id);
 		for (const run of this.runs.values()) {
 			if (
 				run.status === "idle" &&

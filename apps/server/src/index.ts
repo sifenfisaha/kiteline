@@ -101,6 +101,18 @@ function callerOf(c: HonoContext<Env>): Actor | null {
 	return null;
 }
 
+/**
+ * The address a request came from, to count wrong pairing codes against. Behind Tailscale Serve or
+ * another proxy on this computer every connection is from this computer, so there it's the address
+ * the proxy passes on; that header is believed from nowhere else.
+ */
+function remoteAddress(c: HonoContext<Env>) {
+	const remote = getConnInfo(c).remote.address ?? "unknown";
+	const loopback = remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+	const forwarded = loopback ? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() : "";
+	return forwarded || remote;
+}
+
 const CLAIM_ERRORS: Record<ClaimProblem, string> = {
 	unknown: `That pairing code isn't one this computer made. Make a new one with ${command("pair")}.`,
 	expired: `That pairing code has expired. Make a new one with ${command("pair")}.`,
@@ -191,7 +203,7 @@ app.post("/auth/pair", async (c) => {
 		if (tunnel.kind !== "pairing") return c.json({ ok: false, error: "This device is already paired." }, 409);
 		result = await devices.claim({ id: tunnel.id }, { name: body.name, via: "relay" });
 	} else {
-		const ip = getConnInfo(c).remote.address ?? "unknown";
+		const ip = remoteAddress(c);
 		if (limiter.blocked(ip)) {
 			return c.json({ ok: false, error: "Too many wrong codes. Wait ten minutes and try again." }, 429);
 		}
@@ -353,6 +365,10 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, () => {
 		log(
 			`KITELINE_TOKEN isn't used any more: each device pairs with a one-time code from ${command("pair")}.`,
 		);
+	if (devices.damaged)
+		log(
+			`The list of paired devices couldn't be read, so each phone needs pairing again. The old file is kept at ${devices.damaged}.`,
+		);
 	if (startOver) log("Every device was unpaired.");
 	else if (computer.replaced)
 		log(
@@ -379,9 +395,19 @@ const server = serve({ fetch: app.fetch, port, hostname: host }, () => {
 });
 
 server.on("error", (error: NodeJS.ErrnoException) => {
-	if (error.code !== "EADDRINUSE") throw error;
-	printAlreadyRunning(port);
+	if (error.code === "EADDRINUSE") printAlreadyRunning(port);
+	else console.error(`\n  Kiteline couldn't start listening on port ${port}: ${error.message}\n`);
 	process.exit(1);
+});
+
+// One stray error mustn't end every session: say what it was, and keep the others going.
+process.on("unhandledRejection", (reason) => {
+	console.error("  Something went wrong inside Kiteline; it's still running.");
+	console.error(reason instanceof Error ? (reason.stack ?? reason.message) : reason);
+});
+process.on("uncaughtException", (error) => {
+	console.error("  Something went wrong inside Kiteline; it's still running.");
+	console.error(error.stack ?? error.message);
 });
 
 function shutdown() {

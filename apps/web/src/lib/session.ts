@@ -1,4 +1,4 @@
-import type { HistoryPage, Item, RunEvent, RunSnapshot } from "@kiteline/api/agent/types";
+import type { HistoryPage, Item, RunCursor, RunEvent, RunSnapshot } from "@kiteline/api/agent/types";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -81,8 +81,8 @@ const sleep = (ms: number, signal: AbortSignal) =>
 
 /**
  * Live events for one session. Reconnects with backoff, and at once when the tab comes back: a phone
- * that slept can leave a stream that looks open but is dead, and a snapshot replaces state, so a
- * fresh connection is always safe.
+ * that slept can leave a stream that looks open but is dead. A fresh connection is always safe: it
+ * says where the last one got to and is sent only what it missed, or a snapshot that replaces state.
  */
 export function useRunStream(sessionId: string | null) {
 	const [state, dispatch] = useReducer(reducer, { run: null, retired: [], generation: 0 });
@@ -96,6 +96,8 @@ export function useRunStream(sessionId: string | null) {
 		const controller = new AbortController();
 		const { signal } = controller;
 		let attempt = 0;
+		// The last event applied here, which the next connection picks up after.
+		let cursor: RunCursor | null = null;
 
 		void (async () => {
 			while (!signal.aborted) {
@@ -104,10 +106,21 @@ export function useRunStream(sessionId: string | null) {
 				const drop = () => connection.abort();
 				signal.addEventListener("abort", drop, { once: true });
 				try {
-					const events = await client.runs.watch({ sessionId }, { signal: connection.signal });
+					const events = await client.runs.watch(
+						{ sessionId, ...(cursor ? { since: cursor } : {}) },
+						{ signal: connection.signal },
+					);
 					setConnected(true);
 					attempt = 0;
-					for await (const event of events) dispatch(event);
+					for await (const event of events) {
+						if (event.type === "snapshot") {
+							// A computer on an older Kiteline numbers nothing: then every connection starts over.
+							const run = event.run;
+							cursor = run && typeof run.seq === "number" ? { startedAt: run.startedAt, seq: run.seq } : null;
+						} else if (cursor && typeof event.seq === "number") cursor.seq = event.seq;
+						else cursor = null;
+						dispatch(event);
+					}
 				} catch (error) {
 					if (signal.aborted) break;
 					// Dropped on purpose to reconnect: go straight back.

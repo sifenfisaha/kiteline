@@ -16,11 +16,16 @@ export function useLiveRuns() {
 		let attempt = 0;
 		let previous = new Set<string>();
 		let wake: (() => void) | null = null;
+		let open: AbortController | null = null;
 
 		void (async () => {
 			while (!signal.aborted) {
+				const connection = new AbortController();
+				open = connection;
+				const drop = () => connection.abort();
+				signal.addEventListener("abort", drop, { once: true });
 				try {
-					const stream = await client.runs.list(undefined, { signal });
+					const stream = await client.runs.list(undefined, { signal: connection.signal });
 					setConnected(true);
 					attempt = 0;
 					for await (const list of stream) {
@@ -34,12 +39,20 @@ export function useLiveRuns() {
 					}
 				} catch (error) {
 					if (signal.aborted) break;
+					// Dropped on purpose to reconnect: go straight back.
+					if (connection.signal.aborted) {
+						attempt = 0;
+						continue;
+					}
 					if (isUnauthorized(error)) {
 						lostPairing();
 						break;
 					}
+				} finally {
+					signal.removeEventListener("abort", drop);
 				}
 				setConnected(false);
+				if (signal.aborted) break;
 				await new Promise<void>((resolve) => {
 					const timer = setTimeout(resolve, Math.min(8000, 500 * 2 ** attempt++));
 					wake = () => {
@@ -51,13 +64,27 @@ export function useLiveRuns() {
 			}
 		})();
 
+		// A phone that slept can leave a stream that looks open but is dead: start a fresh one.
+		let hiddenAt = 0;
 		const onVisible = () => {
-			if (document.visibilityState === "visible") wake?.();
+			if (document.visibilityState === "hidden") {
+				hiddenAt = Date.now();
+				return;
+			}
+			wake?.();
+			if (hiddenAt && Date.now() - hiddenAt > 3000) open?.abort();
+			hiddenAt = 0;
+		};
+		const onOnline = () => {
+			wake?.();
+			open?.abort();
 		};
 		document.addEventListener("visibilitychange", onVisible);
+		window.addEventListener("online", onOnline);
 		return () => {
 			controller.abort();
 			document.removeEventListener("visibilitychange", onVisible);
+			window.removeEventListener("online", onOnline);
 		};
 	}, [queryClient]);
 
