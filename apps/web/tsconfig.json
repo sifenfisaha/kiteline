@@ -1,5 +1,6 @@
 {
 	"references": [{ "path": "../../packages/api" }],
+	"exclude": ["**/*.test.ts"],
 	"compilerOptions": {
 		"strict": true,
 		"esModuleInterop": true,

@@ -3,6 +3,7 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, HeadContent, Outlet } from "@tanstack/react-router";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { DeviceWatch } from "@/components/device-watch";
 import { PairScreen } from "@/components/pair-screen";
@@ -11,7 +12,8 @@ import { ThemeProvider, useTheme } from "@/components/theme-provider";
 import { initialPairLink, takePairLink, useAuth } from "@/lib/auth";
 import { setHome } from "@/lib/format";
 import { orpc } from "@/lib/orpc";
-import { TunnelError } from "@/lib/relay";
+import { usePushUpkeep } from "@/lib/push";
+import { nameComputer, onRelay, TunnelError, takeMoved } from "@/lib/relay";
 
 import "../index.css";
 
@@ -97,6 +99,21 @@ function offlineReason(error: unknown) {
 function HomeSync({ children }: { children: ReactNode }) {
 	const system = useQuery(orpc.system.info.queryOptions({ staleTime: 5 * 60_000 }));
 	if (system.data) setHome(system.data.home);
+	const hostname = system.data?.hostname;
+	// Remembered beside this phone's key for it, so the list of computers can name each one.
+	useEffect(() => {
+		if (onRelay && hostname) void nameComputer(hostname);
+	}, [hostname]);
+	useEffect(() => {
+		if (!hostname) return;
+		const left = takeMoved();
+		if (left === null) return;
+		toast(`This phone was unpaired from ${left || "a computer"}`, {
+			description: `It's still paired with ${hostname}, so you're there now.`,
+			duration: 10_000,
+		});
+	}, [hostname]);
+	usePushUpkeep();
 	return <>{children}</>;
 }
 

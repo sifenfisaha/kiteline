@@ -341,10 +341,35 @@ export function Content() {
 					Swiping the sheet away doesn't answer it: the request keeps waiting. Tap "Review" in the bar above
 					the reply box, or on the step itself, to bring it back.
 				</p>
-				<Callout tone="note">
-					Kiteline doesn't send push notifications yet. Waiting requests show on your session list, and the
-					browser tab's title changes to "(1) Needs you".
-				</Callout>
+				<H3 id="notifications">Notifications</H3>
+				<p>
+					Turn on <strong>Notifications</strong> in Settings and your phone tells you, on its lock screen,
+					when Claude Code needs your OK, finishes a turn or stops on an error. Tap one to open that session.
+					A device with Kiteline on its screen isn't notified: you're already looking.
+				</p>
+				<ul>
+					<li>
+						<strong>They're a device's own setting,</strong> so turn them on once on each phone or tablet, and
+						for each computer it's paired with.
+					</li>
+					<li>
+						<strong>On an iPhone or iPad,</strong> add Kiteline to your <a href="#home-screen">home screen</a>{" "}
+						first, and turn them on from there: Safari only allows notifications for apps on the home screen.
+					</li>
+					<li>
+						<strong>They need a secure address:</strong> the relay, or your Tailscale HTTPS address. A plain{" "}
+						<code>http://</code> address on your Wi-Fi can't have them; that's the browser's rule.
+					</li>
+					<li>
+						<strong>Nobody in between reads them.</strong> Your computer sends each one itself, straight to
+						your phone's push service (Google's, Apple's or Mozilla's), sealed to a key only that browser
+						holds. The relay never sees them.
+					</li>
+				</ul>
+				<p>
+					Without notifications, waiting requests still show on your session list, and the browser tab's title
+					changes to "(1) Needs you".
+				</p>
 			</Section>
 
 			<Section
@@ -449,16 +474,34 @@ export function Content() {
 							"Devices",
 							"Every device paired with this computer, and when each was last used. Remove one, or pair a new one: a one-time code, and you allow the device right here.",
 						],
+						[
+							"Notifications",
+							<>
+								Tells this device when Claude Code needs you or finishes. See{" "}
+								<a href="#notifications">Notifications</a>.
+							</>,
+						],
 						["Appearance", "Theme: Auto, Light or Dark."],
 						[
 							"New sessions start with",
 							"Your default permission mode and model, and what the Return key does: new line, or send.",
 						],
-						["This computer", "Your computer's name and Kiteline's version."],
+						["This computer", "Your computer's name and Kiteline's version, and whether a newer one is out."],
+						[
+							"Your computers",
+							"Shown once this phone is paired with more than one computer through the relay: switch between them, or unpair from one.",
+						],
 						["Unpair this device", "Forgets this device. You'll need to pair it again to use it."],
 					]}
 				/>
 				<p>Settings belong to each device, so your phone and tablet can differ.</p>
+				<H3 id="computers">More than one computer</H3>
+				<p>
+					Through the relay, one phone can be paired with several computers. Run <code>kiteline pair</code> on
+					the next one and open its link on your phone, as you did for the first. Then tap the computer's name
+					at the top of your session list to switch, or use Settings. Each computer keeps its own sessions,
+					devices and notifications.
+				</p>
 				<H3 id="keyboard">With a keyboard</H3>
 				<Table
 					head={["Keys", "Does"]}
@@ -548,7 +591,7 @@ export function Content() {
 			<Section
 				id="always-on"
 				title="Keep it running"
-				lead="On Linux, Kiteline can run as a background service: it starts when the computer does, restarts if it stops, and keeps going after you log out."
+				lead="On Linux and macOS, Kiteline can run as a background service: it starts with the computer and restarts if it stops."
 			>
 				<Steps>
 					<Step title="Install it">
@@ -583,8 +626,10 @@ export function Content() {
 					]}
 				/>
 				<Callout tone="note">
-					It works with systemd, which most Linux computers use. On a Mac or on Windows, keep{" "}
-					<code>kiteline</code> running in a terminal for now.
+					On Linux it's a systemd user service, which most Linux computers have, and it keeps going after you
+					log out. On a Mac it's a launchd agent: it starts when you log in, and its log is at{" "}
+					<code>~/.kiteline/kiteline.log</code> (<code>tail -f</code> it in place of journalctl). On Windows,
+					keep <code>kiteline</code> running in a terminal for now.
 				</Callout>
 				<p>
 					Set a service up by hand, as earlier versions of these docs had you do?{" "}
@@ -607,6 +652,15 @@ export function Content() {
 						`${install(m, "kiteline@latest")}\nsystemctl --user restart kiteline   # if it runs in the background`
 					}
 				/>
+				<p>
+					On a Mac, restart the background service with{" "}
+					<code>launchctl kickstart -k gui/$(id -u)/dev.seefun.kiteline</code>.
+				</p>
+				<p>
+					Kiteline looks on npm now and then for a newer version, and says so in the terminal, on your session
+					list and in Settings. It asks for the package's public page and sends nothing about your computer;
+					turn it off with <a href="#config">KITELINE_UPDATE_CHECK=off</a>.
+				</p>
 				<p>
 					Without installing, <code>npx kiteline@latest</code> runs the newest, and so do pnpm dlx and bunx.
 					Restarting stops running sessions; each one continues when you send it a message. Your phone picks
@@ -664,6 +718,11 @@ export function Content() {
 							<code key="k">KITELINE_IDLE_MINUTES</code>,
 							"20",
 							"Minutes before an idle session goes to sleep",
+						],
+						[
+							<code key="k">KITELINE_UPDATE_CHECK</code>,
+							"on",
+							"Look on npm for a newer Kiteline now and then, to say when there's an update",
 						],
 						[
 							<code key="k">KITELINE_DEBUG</code>,
@@ -816,10 +875,20 @@ export function Content() {
 						<a href="#anywhere">Tailscale address</a>, not at <code>http://192.168…</code>.
 					</p>
 				</Details>
-				<Details id="too-many-sessions" summary="“6 sessions are already running”">
+				<Details id="too-many-sessions" summary="“6 sessions are busy right now”">
 					<p>
-						Stop one you're done with: open it, tap ⋯, then "Stop the Claude Code process". Or raise{" "}
+						Sessions that are only resting make room by themselves; this means every one is working or waiting
+						for you. Stop one you're done with: open it, tap ⋯, then "Stop the Claude Code process". Or raise{" "}
 						<a href="#config">KITELINE_MAX_SESSIONS</a>.
+					</p>
+				</Details>
+				<Details id="no-notifications" summary="Notifications don't arrive, or can't be turned on">
+					<p>
+						Settings says why when they can't be turned on: an iPhone needs Kiteline on its home screen, and
+						every browser needs a secure address (the relay or Tailscale HTTPS). If they're on and nothing
+						arrives, check that notifications are allowed for Kiteline in the phone's own settings and that Do
+						Not Disturb is off, then turn them off and on again in Kiteline: it sends one straight away to
+						show it works. Your computer needs an internet connection to send them.
 					</p>
 				</Details>
 				<Details id="login-errors" summary="Errors about logging in or an API key">
@@ -882,8 +951,8 @@ export function Content() {
 				</Details>
 				<Details summary="Will my phone notify me when Claude needs me?">
 					<p>
-						Not yet. Waiting requests show on your session list, and the tab's title changes to "(1) Needs
-						you".
+						Yes, once you turn on <a href="#notifications">Notifications</a> in Settings: when it needs your
+						OK, finishes a turn or stops on an error.
 					</p>
 				</Details>
 				<Details summary="Can I keep using Claude Code in my terminal?">
@@ -901,8 +970,9 @@ export function Content() {
 				</Details>
 				<Details summary="What about macOS and Windows?">
 					<p>
-						Kiteline has been tested on Linux. It runs anywhere Node.js and Claude Code do, but the
-						background-service steps here are for Linux.
+						Kiteline has been tested on Linux. It runs anywhere Node.js and Claude Code do. The background
+						service is there for macOS too, though it has had less use than the Linux one; on Windows, keep it
+						running in a terminal.
 					</p>
 				</Details>
 				<Details summary="Is it made by Anthropic?">

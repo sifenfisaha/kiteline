@@ -19,6 +19,7 @@ It's self-hosted: your phone talks straight to your computer, and Claude Code ke
 - **Pick up where you left off,** or start a new session in any project.
 - **Watch it work.** Replies stream in, with every command and edit laid out step by step.
 - **Approve from anywhere.** Allow, deny with a note, or always allow, right from your phone.
+- **Hear when it needs you.** Notifications on your lock screen when Claude Code asks for your OK or finishes, sent straight from your computer and sealed to your phone.
 - **Your modes, your models, your effort.** Change how much it asks, which model it uses and how hard it thinks, mid-session. `/effort` works just like in the terminal.
 - **Feels like an app.** Add it to your home screen, in light or dark.
 
@@ -32,7 +33,7 @@ npx kiteline --relay        # or: pnpm dlx kiteline --relay, or: bunx kiteline -
 
 Scan the QR code it prints with your phone's camera, check that the phone and the terminal show the same six digits, and allow it: you're in, on any network. `--relay` connects through Kiteline's relay, sealed end to end: it passes your sessions on without being able to read them. Leave it out to keep Kiteline to your own Wi-Fi, or [use Tailscale](https://kiteline.seefun.dev/docs/#tailscale).
 
-To keep it running in the background, starting with your computer (Linux):
+To keep it running in the background, starting with your computer (Linux and macOS):
 
 ```bash
 npm install -g kiteline     # or: pnpm add -g kiteline, or: bun add -g kiteline
@@ -50,7 +51,7 @@ Everything else is in the **[docs](https://kiteline.seefun.dev/docs/)**:
 
 - **You approve every device.** A pairing code works once, for ten minutes, and only lets a device ask; it gets in once you allow it, like Bluetooth. Each device has its own key, and you can remove any one in Settings or with `kiteline devices`. Don't open Kiteline's port to the internet; use `--relay` or Tailscale to reach it from elsewhere.
 - **It uses Claude Code's own login,** your Claude plan or API key. Check that the way you use it fits your plan's terms.
-- **Tested on Linux so far.** Reports from real phones, macOS and Windows are very welcome.
+- **Tested on Linux so far.** The macOS background service is new and has had less use. Reports from real phones, macOS and Windows are very welcome.
 
 ## Contributing
 
@@ -59,6 +60,7 @@ git clone https://github.com/sifenfisaha/kiteline.git && cd kiteline
 pnpm install
 pnpm dev       # the server, the app and the website, reloading as you edit
 pnpm check     # lint and format
+pnpm test      # the tests
 pnpm release   # build the npm package into release/
 ```
 

@@ -15,7 +15,7 @@ const HELP = `
     kiteline devices             See the paired devices, and when each was last used
     kiteline devices remove <name or id>
                                  Unpair one device; with --all, every one
-    kiteline service install     Keep it running in the background, from startup (Linux)
+    kiteline service install     Keep it running in the background, from startup (Linux, macOS)
     kiteline service uninstall   Take the background service away
     kiteline service             Say whether it's running in the background
 

@@ -77,7 +77,7 @@ function Terminal({ command }: { command: string }) {
 						{"  "}
 						<span className="t-accent">◆</span>
 						{"  "}
-						<b>Kiteline</b> <span className="t-dim">v0.3.4</span>
+						<b>Kiteline</b> <span className="t-dim">v0.4.0</span>
 					</div>
 					<div className="term__gap" />
 					<div className="term__line out" style={at(1.05)}>

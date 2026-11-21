@@ -21,6 +21,8 @@ export type Settings = {
 	idleMinutes: number;
 	/** The relay phones reach this computer through from anywhere, or null to keep to local networks. */
 	relay: string | null;
+	/** Whether to look on npm for a newer Kiteline now and then. */
+	updateCheck: boolean;
 };
 
 export class SettingsError extends Error {}
@@ -92,6 +94,7 @@ export function readSettings(): Settings {
 		maxSessions: whole("KITELINE_MAX_SESSIONS", "The session limit", 6, 1, 100),
 		idleMinutes: whole("KITELINE_IDLE_MINUTES", "The idle time", 20, 1, 7 * 24 * 60),
 		relay: relay() ?? null,
+		updateCheck: yesNo("KITELINE_UPDATE_CHECK", "Checking for updates", true),
 	};
 }
 

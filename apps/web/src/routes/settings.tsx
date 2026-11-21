@@ -3,15 +3,19 @@ import { cn } from "@kiteline/ui/lib/utils";
 import { CaretLeftIcon, DesktopIcon, MoonIcon, SignOutIcon, SunIcon } from "@phosphor-icons/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useRouter } from "@tanstack/react-router";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
+import { toast } from "sonner";
 
 import { KiteMark } from "@/components/brand";
+import { ComputerList, useComputers } from "@/components/computers";
 import { DeviceList } from "@/components/device-list";
 import { useTheme } from "@/components/theme-provider";
 import { unpair } from "@/lib/auth";
 import { MODELS, MODES } from "@/lib/modes";
-import { orpc } from "@/lib/orpc";
+import { errorMessage, orpc } from "@/lib/orpc";
 import { setPrefs, usePrefs } from "@/lib/prefs";
+import { disablePush, enablePush, pushSupport, SUPPORT_HINTS, usePushStatus } from "@/lib/push";
+import { computerIsBehind } from "@/lib/version";
 
 export const Route = createFileRoute("/settings")({
 	component: Settings,
@@ -99,6 +103,56 @@ function Select<T extends string>({
 	);
 }
 
+/** Lock-screen notifications from this computer, on this device. */
+function Notifications({ host }: { host: string }) {
+	const queryClient = useQueryClient();
+	const [support, setSupport] = useState(pushSupport);
+	const status = usePushStatus(support === "ok");
+	const [busy, setBusy] = useState(false);
+	const on = support === "ok" && status.data?.enabled === true;
+
+	const set = async (next: boolean) => {
+		if (busy || next === on) return;
+		setBusy(true);
+		try {
+			if (next) await enablePush();
+			else await disablePush();
+			await queryClient.invalidateQueries({ queryKey: orpc.push.status.key() });
+		} catch (error) {
+			toast.error(errorMessage(error));
+		} finally {
+			setSupport(pushSupport());
+			setBusy(false);
+		}
+	};
+
+	return (
+		<Group
+			title="Notifications"
+			hint={
+				support === "ok"
+					? `When Claude Code needs your OK or finishes a turn on ${host}, and Kiteline isn't on your screen. They come straight from your computer, sealed to this device.`
+					: SUPPORT_HINTS[support]
+			}
+		>
+			<Row label="On this device" first>
+				{support === "ok" ? (
+					<Segmented
+						value={busy ? (on ? "off" : "on") : on ? "on" : "off"}
+						onChange={(v) => void set(v === "on")}
+						options={[
+							{ value: "off", label: "Off" },
+							{ value: "on", label: busy && !on ? "Turning on…" : "On" },
+						]}
+					/>
+				) : (
+					"Not available"
+				)}
+			</Row>
+		</Group>
+	);
+}
+
 function Settings() {
 	const router = useRouter();
 	const queryClient = useQueryClient();
@@ -106,6 +160,8 @@ function Settings() {
 	const { theme, setTheme } = useTheme();
 	const system = useQuery(orpc.system.info.queryOptions({ staleTime: 60_000 }));
 	const info = system.data;
+	const computers = useComputers();
+	const update = info?.latest && computerIsBehind(info.version, info.latest) ? info.latest : null;
 
 	return (
 		<div className="min-h-dvh">
@@ -130,6 +186,8 @@ function Settings() {
 				>
 					<DeviceList />
 				</Group>
+
+				<Notifications host={info?.hostname ?? "your computer"} />
 
 				<Group title="Appearance">
 					<Row label="Theme" first>
@@ -183,16 +241,29 @@ function Settings() {
 					<Row label="Name" first>
 						{info?.hostname ?? "…"}
 					</Row>
-					<Row label="Kiteline">{info ? `v${info.version}` : "…"}</Row>
+					<Row label="Kiteline">
+						{info ? `v${info.version}` : "…"}
+						{update ? <span className="text-warning ml-2 font-medium">v{update} is out</span> : null}
+					</Row>
 				</Group>
+
+				{computers.length > 1 ? (
+					<Group
+						title="Your computers"
+						hint="This phone is paired with each of these. To add another, run kiteline pair on it and open the link here."
+					>
+						<ComputerList computers={computers} />
+					</Group>
+				) : null}
 
 				<Button
 					variant="destructive"
 					size="lg"
 					className="mt-7 w-full"
 					onClick={async () => {
-						await unpair();
-						queryClient.setQueryData(["auth"], { authed: false });
+						// Still paired with another computer: go over to it, from a clean start.
+						if (await unpair()) window.location.assign("/");
+						else queryClient.setQueryData(["auth"], { authed: false });
 					}}
 				>
 					<SignOutIcon weight="bold" className="size-4" />

@@ -47,6 +47,8 @@ export default defineConfig({
 		VitePWA({
 			registerType: "autoUpdate",
 			workbox: {
+				// Showing notifications: see public/push-sw.js.
+				importScripts: ["push-sw.js"],
 				globPatterns: ["**/*.{js,css,html,svg,png,ico,woff2}"],
 				globIgnores: ["**/assets/lazy/**"],
 				navigateFallbackDenylist: [/^\/rpc/, /^\/auth/],
