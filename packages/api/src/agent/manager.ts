@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
+import { basename } from "node:path";
 
 import { getSessionInfo } from "@anthropic-ai/claude-agent-sdk";
 
@@ -25,6 +26,16 @@ export type ManagerConfig = {
 	/** An idle session's process is stopped after this long; the next message resumes it. */
 	idleTimeoutMs: number;
 	tracker: SessionTracker;
+	/** Told when a session needs an answer, finishes a turn or stops on an error: for notifications. */
+	notify?: (note: RunNote) => void;
+};
+
+/** Something worth telling a person who isn't looking. */
+export type RunNote = {
+	kind: "permission" | "done" | "error";
+	sessionId: string;
+	title: string;
+	body: string;
 };
 
 export type SendInput = {
@@ -40,6 +51,14 @@ export type SendInput = {
 
 /** How long a run that died with an error is remembered. */
 const FAILED_MS = 5 * 60_000;
+/** A turn counts as finished once the session has rested this long: the next queued one starts sooner. */
+const DONE_SETTLE_MS = 1500;
+
+/** A few words of a longer text, on one line. */
+function snippet(text: string, max = 180) {
+	const line = text.replace(/\s+/g, " ").trim();
+	return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
+}
 
 export class RunManager {
 	private readonly runs = new Map<string, Run>();
@@ -51,6 +70,8 @@ export class RunManager {
 	private readonly listWatchers = new Set<AsyncQueue<RunSummary[]>>();
 	private listTimer: ReturnType<typeof setTimeout> | null = null;
 	private readonly effort: EffortCatalog;
+	/** Each session's status as last told, and the wait before calling a turn finished. */
+	private readonly told = new Map<string, { status: string; timer: ReturnType<typeof setTimeout> | null }>();
 
 	constructor(private readonly config: ManagerConfig) {
 		this.effort = new EffortCatalog(config.claudePath);
@@ -276,10 +297,53 @@ export class RunManager {
 
 	private broadcast(sessionId: string, event: RunEvent) {
 		for (const queue of this.sessionWatchers.get(sessionId) ?? []) queue.push(event);
+		if (this.config.notify) this.note(sessionId, event, this.config.notify);
 		if (event.type === "status" || event.type === "permission" || event.type === "permission-resolved") {
 			this.scheduleListUpdate();
 		}
 		if (event.type === "item" && event.item.kind === "user") this.scheduleListUpdate();
+	}
+
+	/** Picks out the moments worth a notification: asked for an answer, finished a turn, stopped on an error. */
+	private note(sessionId: string, event: RunEvent, notify: (note: RunNote) => void) {
+		const run = this.runs.get(sessionId);
+		if (!run) return;
+		const name = run.title || basename(run.cwd) || "Claude Code";
+		if (event.type === "permission") {
+			const { request } = event;
+			const what = request.title || request.description || request.displayName || request.toolName;
+			notify({ kind: "permission", sessionId, title: `${name} needs your OK`, body: snippet(what) });
+			return;
+		}
+		if (event.type !== "status") return;
+		const before = this.told.get(sessionId);
+		if (before?.timer) clearTimeout(before.timer);
+		if (event.status === "closed" || event.status === "error") this.told.delete(sessionId);
+		else this.told.set(sessionId, { status: event.status, timer: null });
+
+		if (event.status === "error") {
+			notify({
+				kind: "error",
+				sessionId,
+				title: `${name} stopped`,
+				body: snippet(event.error || "Claude Code stopped with an error."),
+			});
+		} else if (event.status === "idle" && (before?.status === "running" || before?.status === "waiting")) {
+			const entry = this.told.get(sessionId);
+			if (!entry) return;
+			entry.timer = setTimeout(() => {
+				entry.timer = null;
+				if (run.status !== "idle") return;
+				const reply = run.items.findLast((item) => item.kind === "text" && item.parent === null);
+				notify({
+					kind: "done",
+					sessionId,
+					title: `${name} is done`,
+					body: snippet(reply?.kind === "text" ? reply.text : "") || "Claude Code finished its turn.",
+				});
+			}, DONE_SETTLE_MS);
+			entry.timer.unref?.();
+		}
 	}
 
 	private scheduleListUpdate() {

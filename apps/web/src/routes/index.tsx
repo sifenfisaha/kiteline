@@ -2,6 +2,7 @@ import type { RunSummary, SessionInfo } from "@kiteline/api/agent/types";
 import { cn } from "@kiteline/ui/lib/utils";
 import {
 	CaretRightIcon,
+	CaretUpDownIcon,
 	FolderSimpleIcon,
 	GearSixIcon,
 	GitBranchIcon,
@@ -15,6 +16,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
 import { Wordmark } from "@/components/brand";
+import { ComputerSheet, useComputers } from "@/components/computers";
 import { StatusDot, StatusPill } from "@/components/status";
 import { UpdateNotice } from "@/components/update-notice";
 import { baseName, dayBucket, greeting, relativeTime, tildify } from "@/lib/format";
@@ -43,6 +45,8 @@ function Home() {
 	const [query, setQuery] = useState("");
 	const [project, setProject] = useState<string | null>(null);
 	const scrolled = useScrolled();
+	const computers = useComputers();
+	const [choosing, setChoosing] = useState(false);
 
 	const liveById = useMemo(() => new Map((runs ?? []).map((r) => [r.sessionId, r])), [runs]);
 
@@ -85,10 +89,23 @@ function Home() {
 				<div className="mx-auto flex h-14 max-w-2xl items-center justify-between gap-3 px-4">
 					<Wordmark />
 					<div className="flex min-w-0 items-center gap-1">
-						<span className="bg-surface-2 text-muted-foreground inline-flex h-8 min-w-0 items-center gap-2 rounded-full px-3 text-[13px]">
-							<StatusDot status={connected ? "idle" : "closed"} />
-							<span className="truncate">{host}</span>
-						</span>
+						{computers.length > 1 ? (
+							<button
+								type="button"
+								aria-label={`On ${host}. Switch computer`}
+								onClick={() => setChoosing(true)}
+								className="bg-surface-2 text-muted-foreground hover:bg-surface-3 inline-flex h-8 min-w-0 items-center gap-2 rounded-full pr-2 pl-3 text-[13px] transition-colors"
+							>
+								<StatusDot status={connected ? "idle" : "closed"} />
+								<span className="truncate">{host}</span>
+								<CaretUpDownIcon weight="bold" className="size-3 flex-none" />
+							</button>
+						) : (
+							<span className="bg-surface-2 text-muted-foreground inline-flex h-8 min-w-0 items-center gap-2 rounded-full px-3 text-[13px]">
+								<StatusDot status={connected ? "idle" : "closed"} />
+								<span className="truncate">{host}</span>
+							</span>
+						)}
 						<Link
 							to="/settings"
 							aria-label="Settings"
@@ -116,7 +133,7 @@ function Home() {
 					</p>
 				</section>
 
-				<UpdateNotice computer={system.data?.version} host={host} />
+				<UpdateNotice computer={system.data?.version} latest={system.data?.latest} host={host} />
 
 				{live.length ? (
 					<section className="mb-7">
@@ -198,6 +215,8 @@ function Home() {
 					New session
 				</Link>
 			</div>
+
+			<ComputerSheet open={choosing} onOpenChange={setChoosing} computers={computers} />
 		</div>
 	);
 }

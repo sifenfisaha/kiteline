@@ -17,7 +17,10 @@ const STORE = "computers";
 const CURRENT = "kiteline:relay:computer";
 
 /** A computer this phone is paired with: its address, this phone's id there, and this phone's key. */
-type Computer = { id: string; device?: string; key: SecretKey; pairedAt: number };
+type Computer = { id: string; device?: string; key: SecretKey; pairedAt: number; name?: string };
+
+/** A computer this phone is paired with, for the list to switch between them. */
+export type ComputerInfo = { id: string; name: string | null; pairedAt: number; current: boolean };
 
 function database() {
 	return new Promise<IDBDatabase>((resolve, reject) => {
@@ -51,9 +54,81 @@ async function read(host: string) {
 	);
 }
 
+function setCurrent(id: string | null) {
+	try {
+		if (id) localStorage.setItem(CURRENT, id);
+		else localStorage.removeItem(CURRENT);
+	} catch {}
+}
+
+async function everyComputer() {
+	return ((await store("readonly", (s) => s.getAll()).catch(() => [])) as Computer[]).filter((c) => c.device);
+}
+
+/** A notification's link says which computer it's from: `?computer=`, taken out of the address at once. */
+function takeAsked() {
+	if (typeof window === "undefined") return null;
+	const url = new URL(window.location.href);
+	const asked = url.searchParams.get("computer");
+	if (asked === null) return null;
+	url.searchParams.delete("computer");
+	history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+	return /^[\w-]{22}$/.test(asked) ? asked : null;
+}
+let asked = takeAsked();
+
+/**
+ * The computer this phone is on. A notification from another one this phone is paired with switches to
+ * it; and when the one it was on is gone, say unpaired, the latest of the others takes its place.
+ */
 async function currentComputer() {
+	if (asked) {
+		const wanted = asked;
+		asked = null;
+		if (wanted !== currentId() && (await read(wanted))?.device) setCurrent(wanted);
+	}
 	const id = currentId();
-	return id ? read(id) : null;
+	const computer = id ? await read(id) : null;
+	if (computer) return computer;
+	const [other] = (await everyComputer()).sort((a, b) => b.pairedAt - a.pairedAt);
+	if (!other) return null;
+	setCurrent(other.id);
+	return other;
+}
+
+/** Every computer this phone is paired with through this relay, the one it's on first. */
+export async function listComputers(): Promise<ComputerInfo[]> {
+	const current = (await currentComputer())?.id;
+	return (await everyComputer())
+		.map((c) => ({ id: c.id, name: c.name ?? null, pairedAt: c.pairedAt, current: c.id === current }))
+		.sort((a, b) => Number(b.current) - Number(a.current) || b.pairedAt - a.pairedAt);
+}
+
+/** Which computer this phone is on, for keeping what's remembered about each one apart. */
+export function currentComputerId() {
+	return onRelay ? currentId() : null;
+}
+
+/** Goes over to another computer. The page starts again, so nothing of the last one is left showing. */
+export function switchComputer(id: string) {
+	setCurrent(id);
+	dropTunnel();
+	window.location.assign("/");
+}
+
+/** Keeps what the computer calls itself, for the list. */
+export async function nameComputer(name: string) {
+	const computer = await currentComputer();
+	if (!computer || computer.name === name) return;
+	await store("readwrite", (s) => s.put({ ...computer, name })).catch(() => {});
+}
+
+/** Unpairs from a computer this phone isn't on right now: signed out there, then forgotten here. */
+export async function forgetOtherComputer(id: string) {
+	const computer = await read(id);
+	if (!computer || id === currentId()) return;
+	if (computer.device) await retire(id, computer.device, computer.key);
+	await store("readwrite", (s) => s.delete(id)).catch(() => {});
 }
 
 /**
@@ -65,10 +140,10 @@ export async function rememberComputer(host: string, device: string, secret: str
 	const old = await read(host);
 	if (old?.device && old.device !== device) await retire(host, old.device, old.key);
 	const key = await importSecret(fromBase64Url(secret));
-	await store("readwrite", (s) => s.put({ id: host, device, key, pairedAt: Date.now() }));
-	try {
-		localStorage.setItem(CURRENT, host);
-	} catch {}
+	await store("readwrite", (s) =>
+		s.put({ id: host, device, key, pairedAt: Date.now(), ...(old?.name ? { name: old.name } : {}) }),
+	);
+	setCurrent(host);
 	dropTunnel();
 }
 
@@ -90,14 +165,13 @@ async function retire(host: string, device: string, key: SecretKey) {
 	}
 }
 
-/** Unpairing on purpose: this phone forgets the computer it's on. */
+/** Unpairing on purpose: this phone forgets the computer it's on. Says whether it's paired with another. */
 export async function forgetComputer() {
 	const id = currentId();
 	dropTunnel();
-	try {
-		localStorage.removeItem(CURRENT);
-	} catch {}
+	setCurrent(null);
 	if (id) await store("readwrite", (s) => s.delete(id)).catch(() => {});
+	return (await everyComputer()).length > 0;
 }
 
 /**
@@ -149,10 +223,34 @@ export function onUnpaired(listener: () => void) {
 	return () => void unpairedListeners.delete(listener);
 }
 
+const MOVED = "kiteline:relay:moved";
+
+/** Set when this phone was unpaired from one computer and went over to another: said once, then cleared. */
+export function takeMoved() {
+	try {
+		const moved = sessionStorage.getItem(MOVED);
+		if (moved !== null) sessionStorage.removeItem(MOVED);
+		return moved;
+	} catch {
+		return null;
+	}
+}
+
 /** The computer turned this key away, so it opens nothing now: forget it, if it's still the one kept. */
 async function unpaired(host: string, device: string) {
+	const was = (await read(host))?.name ?? "";
 	if (!(await forgetKey(host, device).catch(() => false))) return;
-	if (currentId() === host) for (const listener of unpairedListeners) listener();
+	if (currentId() !== host) return;
+	if (!(await everyComputer()).length) {
+		for (const listener of unpairedListeners) listener();
+		return;
+	}
+	// Still paired with another computer: go over to it from a clean start, and say why.
+	setCurrent(null);
+	try {
+		sessionStorage.setItem(MOVED, was);
+	} catch {}
+	window.location.assign("/");
 }
 
 function dropTunnel() {

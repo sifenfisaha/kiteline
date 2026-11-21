@@ -5,6 +5,7 @@ import { RPCLink } from "@orpc/client/fetch";
 import { kitelineHome, localAddress, readComputerKey, readServerInfo } from "./auth";
 import { bold } from "./banner";
 import { command, loadOwnEnvFile, readSettings } from "./config";
+import { restartCommand } from "./service";
 
 /** Why a `kiteline` command can't reach the Kiteline that should be running, in words to act on. */
 export class Unreachable extends Error {}
@@ -55,11 +56,10 @@ export async function connectToKiteline() {
 		guess = localAddress(settings.port, settings.host);
 	} catch {}
 	if (await status(guess)) {
+		const restart = restartCommand();
 		throw new Unreachable(
 			`The Kiteline that's running is older than this command. Restart it, then try again${
-				process.platform === "linux"
-					? `; in the background, that's ${bold("systemctl --user restart kiteline")}`
-					: ""
+				restart ? `; in the background, that's ${bold(restart)}` : ""
 			}.`,
 		);
 	}

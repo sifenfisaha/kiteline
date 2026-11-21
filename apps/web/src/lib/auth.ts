@@ -207,14 +207,17 @@ async function startThroughRelay(link: PairLink): Promise<PairAttempt | { error:
 	};
 }
 
+/** Unpairs this phone from the computer it's on. Says whether it's still paired with another one. */
 export async function unpair() {
 	if (onRelay) {
 		// Forgotten on the computer too, so this phone's key opens nothing there even if it was copied.
 		await relayFetch("/auth/logout", { method: "POST" })
 			.then((response) => response.body?.cancel())
 			.catch(() => {});
-		await forgetComputer();
-	} else await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+		return forgetComputer();
+	}
+	await fetch("/auth/logout", { method: "POST", credentials: "same-origin" });
+	return false;
 }
 
 export function useAuth() {

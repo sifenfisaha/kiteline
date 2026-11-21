@@ -7,6 +7,7 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import { RunManager } from "@kiteline/api/agent/manager";
 import { SessionTracker } from "@kiteline/api/agent/tracker";
 import { type Actor, type ClaimProblem, Devices } from "@kiteline/api/devices";
+import { Push } from "@kiteline/api/push";
 import { appRouter } from "@kiteline/api/routers/index";
 import type { Identity } from "@kiteline/api/tunnel/crypto";
 import { onError } from "@orpc/server";
@@ -38,6 +39,7 @@ import { command, readSettings, SettingsError } from "./config";
 import { startConsole } from "./console";
 import { createContext } from "./context";
 import { hostAddress, startRelay } from "./relay";
+import { watchForUpdates } from "./update";
 
 const dev = process.argv.includes("--dev");
 let settings: ReturnType<typeof readSettings>;
@@ -70,15 +72,27 @@ const limiter = new PairLimiter();
 const interactive = !dev && !!process.stdin.isTTY && !!process.stdout.isTTY;
 const log = (message: string) => console.log(`  ${message}`);
 
+const push = new Push(join(home, "push.json"), { computer: where.relay?.hostId, log });
+
 const manager = new RunManager({
 	claudePath: settings.claudePath ?? null,
 	allowBypass,
 	maxLiveRuns: settings.maxSessions,
 	idleTimeoutMs: settings.idleMinutes * 60_000,
 	tracker: new SessionTracker(join(home, "sessions.json")),
+	notify: (note) => void push.notify(note),
 });
 
-const shared = { manager, devices, pairingLink, allowBypass, version: pkg.version };
+const latestVersion =
+	dev || !settings.updateCheck
+		? () => null
+		: watchForUpdates(pkg.version, (version) =>
+				log(
+					`Kiteline ${version} is out, and this is ${pkg.version}. Update with: npm install -g kiteline@latest`,
+				),
+			);
+
+const shared = { manager, devices, push, latestVersion, pairingLink, allowBypass, version: pkg.version };
 
 /** Requests through the relay come with who the tunnel proved is at the other end. */
 type Env = { Bindings: { tunnel?: Identity } };
@@ -322,6 +336,7 @@ if (!dev && webDir) {
 let relay: Awaited<ReturnType<typeof startRelay>> | null = null;
 
 devices.on("removed", (device, by) => {
+	push.unsubscribe(device.id);
 	// A device removing itself still wants the answer: cut it off a moment later.
 	const self = by.kind === "device" && by.id === device.id;
 	setTimeout(

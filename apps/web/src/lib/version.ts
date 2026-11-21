@@ -8,6 +8,11 @@ function parts(version: string) {
 	return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
 }
 
+/** The later of two releases; one that isn't a plain version loses. */
+export function newest(a: string, b: string | null | undefined) {
+	return b && parts(b) && (!parts(a) || computerIsBehind(a, b)) ? b : a;
+}
+
 /** Whether the computer runs an older Kiteline than this app expects. Unknown versions count as fine. */
 export function computerIsBehind(computer: string | undefined, app = APP_VERSION) {
 	const theirs = computer ? parts(computer) : null;

@@ -1,6 +1,6 @@
 {
 	"name": "kiteline",
-	"version": "0.3.4",
+	"version": "0.4.0",
 	"description": "Drive Claude Code on your computer from your phone.",
 	"license": "MIT",
 	"private": true,
@@ -13,6 +13,7 @@
 		"dev": "turbo run dev",
 		"build": "turbo run build",
 		"check-types": "turbo run check-types",
+		"test": "tsx --test \"packages/**/*.test.ts\" \"apps/**/*.test.ts\"",
 		"dev:web": "turbo run dev -F web --",
 		"dev:server": "turbo run dev -F server --",
 		"env:generate": "varlock codegen --path ./apps/web/",
@@ -32,6 +33,7 @@
 		"@biomejs/biome": "^2.6.2",
 		"@kiteline/config": "workspace:*",
 		"@types/node": "^26.4.1",
+		"tsx": "^4.23.15",
 		"turbo": "^2.11.7",
 		"typescript": "catalog:",
 		"varlock": "catalog:"

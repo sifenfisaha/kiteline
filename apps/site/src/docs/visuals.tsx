@@ -85,7 +85,7 @@ export function BannerShot() {
 					{"  "}
 					<span className="t-accent">◆</span>
 					{"  "}
-					<b>Kiteline</b> <span className="t-dim">v0.3.4</span>
+					<b>Kiteline</b> <span className="t-dim">v0.4.0</span>
 				</div>
 				<div className="banner-shot__gap" />
 				<div>
